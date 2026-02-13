@@ -1,0 +1,16 @@
+name: whisper_transcriptor
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python
+  - flask
+  - pytorch
+  - torchaudio
+  - ffmpeg
+  - openai-whisper
+  - pip
+  - pyannote.core
+  - pip:
+      - pyannote.audio
