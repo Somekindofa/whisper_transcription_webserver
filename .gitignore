@@ -52,3 +52,4 @@ instance/
 *.mp3
 *.wav
 *.flac
+*.db
