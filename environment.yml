@@ -12,5 +12,6 @@ dependencies:
   - openai-whisper
   - pip
   - pyannote.core
+  - libsndfile
   - pip:
       - pyannote.audio
