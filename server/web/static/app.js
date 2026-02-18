@@ -36,10 +36,16 @@ function renderQueue(items) {
   
   items.forEach((item) => {
     const card = document.createElement("div");
-    card.className = `queue-card status-${item.status}`;
+    // If a queued item already has progress data, visually upgrade it to
+    // "processing" (yellow) so the user sees immediate feedback even before
+    // the server sets DB status to "active".
+    const effectiveStatus = (item.status === 'queued' && progressState[item.id] !== undefined)
+      ? 'active'
+      : item.status;
+    card.className = `queue-card status-${effectiveStatus}`;
     card.id = `card-${item.id}`;
     
-    const spinner = (item.status === "active" || item.status === "uploading") 
+    const spinner = (effectiveStatus === "active" || effectiveStatus === "uploading") 
       ? '<span class="spinner"></span>' 
       : "";
     
@@ -62,7 +68,7 @@ function renderQueue(items) {
     const phase = (progressState[`phase_${item.id}`] || "");
     const phaseDisplay = phase ? `<div class="queue-card__phase">${phase}</div>` : "";
 
-    const showProgressBar = item.status === "active" || item.status === "uploading" || (item.status === "queued" && progressState[item.id] !== undefined);
+    const showProgressBar = effectiveStatus === "active" || effectiveStatus === "uploading";
 
     const progressBar = showProgressBar
       ? `<div class="queue-card__progress-container">
@@ -176,10 +182,9 @@ function renderQueue(items) {
       }
     });
 
-    // Connect WebSocket for active/uploading items. Also connect for
-    // queued items when we have a pre-existing progressState entry so the
-    // client is already listening when the server starts processing.
-    if ((item.status === "active" || item.status === "uploading" || (item.status === 'queued' && progressState[item.id] !== undefined)) && !activeWebSockets[item.id]) {
+    // Connect WebSocket for active/uploading items so we receive live
+    // progress updates from the server.
+    if ((effectiveStatus === "active" || effectiveStatus === "uploading") && !activeWebSockets[item.id]) {
       connectProgressWebSocket(item.id);
     }
   });
@@ -194,10 +199,13 @@ async function fetchQueue() {
     // No global polling: UI relies on WebSocket + webhook updates. Keep
     // per-file polling only as a fallback when WS isn't available.
     
-    // Clean up WebSocket connections for completed/errored items
+    // Clean up WebSocket connections for completed/errored items.
+    // Keep the connection alive for queued items that have progress state
+    // (user clicked Transcribe but server hasn't flipped to "active" yet).
     Object.keys(activeWebSockets).forEach(fileId => {
       const item = items.find(i => i.id == fileId);
-      if (!item || (item.status !== "active" && item.status !== "uploading")) {
+      const hasProgress = progressState[fileId] !== undefined;
+      if (!item || (item.status !== "active" && item.status !== "uploading" && !hasProgress)) {
         disconnectProgressWebSocket(parseInt(fileId));
       }
     });
@@ -275,8 +283,15 @@ function connectProgressWebSocket(fileId) {
       }
     }
 
-    // If complete, refresh queue to update status
+    // Refresh queue when server confirms active/complete/error so the
+    // card CSS class reflects the real server-side status.
+    if (data.status === "active") {
+      setTimeout(fetchQueue, 150);
+    }
     if (data.status === "complete" || data.status === "error") {
+      // Clean up progress state so re-render shows proper done/error color
+      delete progressState[data.file_id];
+      delete progressState[`phase_${data.file_id}`];
       setTimeout(fetchQueue, 500);
     }
   };
