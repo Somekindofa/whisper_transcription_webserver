@@ -268,14 +268,52 @@ async def ws_status():
     return {k: len(v) for k, v in active_connections.items()}
 
 
-async def process_single_item(file_id: int, whisper_service: WhisperService, pyannote_client: PyannoteClient):
-    """Process a single queue item: convert audio, diarize, transcribe, and merge."""
+async def _broadcast_ws(file_id: int, message: dict) -> None:
+    """Send a JSON message to every WebSocket client listening for *file_id*.
+
+    Safe to call from any context (event-loop thread or worker thread).
+    The actual ``send_json`` is always executed on the running asyncio loop.
+    """
+    if file_id not in active_connections:
+        return
+    for ws in list(active_connections[file_id]):
+        try:
+            await ws.send_json(message)
+        except Exception:
+            pass
+
+
+def _broadcast_ws_threadsafe(loop, file_id: int, message: dict) -> None:
+    """Schedule a WS broadcast from a synchronous / worker-thread context.
+
+    ``loop`` must be the running asyncio event loop (captured before we
+    enter ``run_in_executor``).  The coroutine is submitted via
+    ``run_coroutine_threadsafe`` so it executes on the event-loop thread
+    while this (blocking) thread continues immediately.
+    """
     import asyncio
-    
+    try:
+        asyncio.run_coroutine_threadsafe(_broadcast_ws(file_id, message), loop)
+    except Exception:
+        pass
+
+
+async def process_single_item(file_id: int, whisper_service: WhisperService, pyannote_client: PyannoteClient):
+    """Process a single queue item: convert audio, diarize, transcribe, and merge.
+
+    Heavy / blocking work (FFmpeg, pyannote, Whisper) is offloaded to a
+    thread-pool executor so the asyncio event loop stays free to flush
+    WebSocket messages in real-time.
+    """
+    import asyncio
+    import functools
+
+    loop = asyncio.get_event_loop()
+
     item = db.get_queue_item_by_id(file_id)
     if not item:
         return
-    
+
     try:
         # Mark as active
         db.update_status(file_id, "active")
@@ -283,50 +321,46 @@ async def process_single_item(file_id: int, whisper_service: WhisperService, pya
 
         # Broadcast immediate 'active' message so clients that connected
         # pre-emptively (on Transcribe click) will show the progress bar.
-        if file_id in active_connections:
-            import asyncio
-            for websocket in active_connections[file_id]:
-                try:
-                    asyncio.create_task(websocket.send_json({
-                        "file_id": file_id,
-                        "progress": 0,
-                        "status": "active",
-                        "phase": "Starting processing..."
-                    }))
-                except Exception:
-                    pass
+        await _broadcast_ws(file_id, {
+            "file_id": file_id,
+            "progress": 0,
+            "status": "active",
+            "phase": "Starting processing...",
+        })
 
         # ========== PHASE 1: CONVERT VIDEO/AUDIO TO WAV ==========
         audio_dir = config.STORAGE_DIR / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
         audio_path = audio_dir / f"{file_id}.wav"
-        
+
         def conversion_progress_callback(progress_percent: float):
-            """Broadcast FFmpeg conversion progress."""
+            """Broadcast FFmpeg conversion progress (called from worker thread)."""
             db.update_progress(file_id, progress_percent)
-            if file_id in active_connections:
-                for websocket in active_connections[file_id]:
-                    try:
-                        asyncio.create_task(websocket.send_json({
-                            "file_id": file_id,
-                            "progress": progress_percent,
-                            "status": "converting",
-                            "phase": "Extracting audio..."
-                        }))
-                    except Exception:
-                        pass
-        
-        convert_to_mono_wav(Path(item["stored_path"]), audio_path, progress_callback=conversion_progress_callback)
+            _broadcast_ws_threadsafe(loop, file_id, {
+                "file_id": file_id,
+                "progress": progress_percent,
+                "status": "converting",
+                "phase": "Extracting audio...",
+            })
+
+        await loop.run_in_executor(
+            None,
+            functools.partial(
+                convert_to_mono_wav,
+                Path(item["stored_path"]),
+                audio_path,
+                progress_callback=conversion_progress_callback,
+            ),
+        )
         db.update_audio_path(file_id, str(audio_path))
 
         # Start timing for diarization + transcription (used for UI elapsed time)
         import time
         processing_start = time.time()
-        
+
         # ========== PHASE 2: SPEAKER DIARIZATION ==========
         # If speakers == 1 we skip diarization (transcription-only fast path).
         if item["speakers"] == 1:
-            # Skip diarization and jump to transcription phase
             db.update_progress(file_id, 50)
             diarization_result = None
             logger.debug("Skipping diarization for file_id=%s (speakers=1)", file_id)
@@ -334,138 +368,106 @@ async def process_single_item(file_id: int, whisper_service: WhisperService, pya
             db.update_progress(file_id, 5)  # Diarization starts at 5%
 
             def diarization_progress_callback(progress_percent: float):
-                """Map pyannote progress (0-100) into overall progress and broadcast."""
-                # Map diarization 0..100 -> overall 5..50
+                """Map pyannote progress (0-100) into overall 5..50 and broadcast."""
                 try:
                     pct = float(progress_percent)
                 except Exception:
                     pct = 0.0
                 total_progress = 5 + (pct * 0.45)
                 db.update_progress(file_id, total_progress)
-
-                if file_id in active_connections:
-                    for websocket in active_connections[file_id]:
-                        try:
-                            asyncio.create_task(websocket.send_json({
-                                "file_id": file_id,
-                                "progress": total_progress,
-                                "status": "processing",
-                                "phase": "Identifying speakers..."
-                            }))
-                        except Exception:
-                            pass
+                _broadcast_ws_threadsafe(loop, file_id, {
+                    "file_id": file_id,
+                    "progress": total_progress,
+                    "status": "processing",
+                    "phase": "Identifying speakers...",
+                })
 
             num_speakers = item["speakers"] if item["speakers"] > 0 else None
-            # Notify that diarization started (0%)
             diarization_progress_callback(0.0)
-            diarization_result = pyannote_client.diarize(
-                str(audio_path),
-                num_speakers=num_speakers,
-                progress_callback=diarization_progress_callback,
+
+            diarization_result = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    pyannote_client.diarize,
+                    str(audio_path),
+                    num_speakers=num_speakers,
+                    progress_callback=diarization_progress_callback,
+                ),
             )
             logger.debug("Diarization result: %s", diarization_result)
 
-            # Store diarization results
             db.update_diarization(file_id, json.dumps(diarization_result))
             logger.debug("Diarization stored in DB for file_id=%s", file_id)
 
         # ========== PHASE 3: SPEECH-TO-TEXT TRANSCRIPTION ==========
         db.update_progress(file_id, 50)  # Transcription starts at 50%
-        
+
         def transcription_progress_callback(progress_percent: float):
-            """Update progress in DB and broadcast via WebSocket."""
-            # Map 0-100 to 50-100 range for transcription phase
+            """Map whisper 0-100 into overall 50-100 and broadcast."""
             total_progress = 50 + (progress_percent * 0.5)
             db.update_progress(file_id, total_progress)
-            
-            # Broadcast to connected clients
-            if file_id in active_connections:
-                for websocket in active_connections[file_id]:
-                    try:
-                        asyncio.create_task(websocket.send_json({
-                            "file_id": file_id,
-                            "progress": total_progress,
-                            "status": "processing",
-                            "phase": "Transcribing audio..."
-                        }))
-                    except Exception:
-                        pass
-        
-        # Run Whisper transcription with progress callback
-        transcript_result = whisper_service.transcribe(
-            audio_path, 
-            item["language"],
-            progress_callback=transcription_progress_callback
+            _broadcast_ws_threadsafe(loop, file_id, {
+                "file_id": file_id,
+                "progress": total_progress,
+                "status": "processing",
+                "phase": "Transcribing audio...",
+            })
+
+        transcript_result = await loop.run_in_executor(
+            None,
+            functools.partial(
+                whisper_service.transcribe,
+                audio_path,
+                item["language"],
+                progress_callback=transcription_progress_callback,
+            ),
         )
         logger.debug("Transcription result for file_id=%s: %s", file_id, transcript_result)
-        
+
         # ========== PHASE 4: MERGE RESULTS ==========
         db.update_progress(file_id, 95)
-        
-        # Broadcast merging status
-        if file_id in active_connections:
-            for websocket in active_connections[file_id]:
-                try:
-                    asyncio.create_task(websocket.send_json({
-                        "file_id": file_id,
-                        "progress": 95,
-                        "status": "processing",
-                        "phase": "Finalizing results..."
-                    }))
-                except Exception:
-                    pass
-        
-        # Merge diarization with transcript
+        await _broadcast_ws(file_id, {
+            "file_id": file_id,
+            "progress": 95,
+            "status": "processing",
+            "phase": "Finalizing results...",
+        })
+
         merged_text = merge_diarization_with_transcript(diarization_result, transcript_result)
         logger.debug("Merged transcript (file_id=%s): %s", file_id, merged_text)
-        
-        # Record processing elapsed time (diarization + transcription)
+
+        # Record processing elapsed time
         try:
-            import time
             elapsed_seconds = max(0.0, time.time() - processing_start)
             db.update_processing_time(file_id, elapsed_seconds)
         except Exception:
             logger.exception("Failed to record processing elapsed time for file_id=%s", file_id)
+            elapsed_seconds = 0.0
 
         # Store final results
         db.update_transcript(file_id, merged_text, transcript_result["device"])
         db.update_progress(file_id, 100)
         db.update_status(file_id, "complete")
-        
-        # Final completion notification
-        if file_id in active_connections:
-            for websocket in active_connections[file_id]:
-                try:
-                    asyncio.create_task(websocket.send_json({
-                        "file_id": file_id,
-                        "progress": 100,
-                        "status": "complete",
-                        "processing_seconds": elapsed_seconds
-                    }))
-                except Exception as e:
-                    logger.warning("Failed to send completion message: %s", e)
 
-        # Duplicate transcription/merge block removed — transcription already handled above
-        # (This fixed a NameError where `progress_callback` was referenced but undefined.)
-        
+        # Final completion notification
+        await _broadcast_ws(file_id, {
+            "file_id": file_id,
+            "progress": 100,
+            "status": "complete",
+            "processing_seconds": elapsed_seconds,
+        })
+
     except Exception as e:
         logger.exception("ERROR in process_single_item (file_id=%s): %s", file_id, e)
         import traceback
         error_details = f"{type(e).__name__}: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
         db.update_status(file_id, "error", error_details)
-        
-        # Broadcast error
-        if file_id in active_connections:
-            import asyncio
-            for websocket in active_connections[file_id]:
-                try:
-                    asyncio.create_task(websocket.send_json({
-                        "file_id": file_id,
-                        "status": "error",
-                        "error": str(e)
-                    }))
-                except Exception as ex:
-                    logger.warning("Failed to send error message via websocket: %s", ex)
+
+        await _broadcast_ws(file_id, {
+            "file_id": file_id,
+            "status": "error",
+            "error": str(e),
+        })
 
 
 @router.post("/transcribe")
