@@ -1,0 +1,248 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f1ea;
+  --ink: #1f1a17;
+  --accent: #2b6d5a;
+  --queued: rgba(52, 129, 214, 0.2);
+  --active: rgba(235, 193, 64, 0.5);
+  --done: rgba(70, 160, 104, 0.4);
+  --error: rgba(198, 67, 67, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 20% 20%, #f8f4ef, #e5dfd3);
+  color: var(--ink);
+}
+
+.app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.app__header h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2.2rem;
+}
+
+.controls {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr);
+  align-items: start;
+}
+
+.dropzone {
+  border: 2px dashed var(--accent);
+  padding: 2rem;
+  text-align: center;
+  background: #fff;
+  border-radius: 16px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dropzone.is-active {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(31, 26, 23, 0.1);
+}
+
+.options {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 16px;
+  display: grid;
+  gap: 1rem;
+}
+
+.options label {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.options button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.queue {
+  margin-top: 2.5rem;
+}
+
+.queue-card {
+  background: #fff;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.queue-card.status-queued {
+  background: var(--queued);
+}
+
+.queue-card.status-uploading {
+  background: rgba(66, 165, 245, 0.3);
+}
+
+.queue-card.status-active {
+  background: var(--active);
+}
+
+.queue-card.status-complete {
+  background: var(--done);
+}
+
+.queue-card.status-error {
+  background: var(--error);
+}
+
+.queue-card.processing {
+  background: rgba(255, 193, 7, 0.2);
+}
+
+.queue-card__header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.queue-card__meta {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.queue-card__meta select,
+.queue-card__meta input[type="number"] {
+  margin-left: 0.35rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #222;
+  font-size: 0.9rem;
+}
+
+.queue-card__note {
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+  color: #995a00;
+  background: rgba(255, 244, 229, 0.7);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.queue-card__preview {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.queue-card__error {
+  background: rgba(198, 67, 67, 0.2);
+  padding: 0.5rem;
+  border-radius: 6px;
+  color: #c84343;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.queue-card__progress-container {
+  position: relative;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.queue-card__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #4fa878);
+  border-radius: 12px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.queue-card__progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.5px;
+}
+
+.queue-card__phase {
+  font-size: 0.8rem;
+  color: #555;
+  margin-top: 0.4rem;
+  font-style: italic;
+  padding: 0.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.queue-card__elapsed {
+  margin-top: 0.5rem;
+  color: #444;
+  font-size: 0.85rem;
+}
+
+.queue-card__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.queue-card__actions button {
+  border: 1px solid #ccc;
+  background: #fff;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: rgba(0, 0, 0, 0.6);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 720px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
+}

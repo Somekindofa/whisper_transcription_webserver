@@ -1,0 +1,28 @@
+name: whisper_transcriptor
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch=2.2.2
+  - torchvision=0.17.2
+  - torchaudio=2.2.2
+  - conda-forge::fastapi
+  - conda-forge::uvicorn
+  - conda-forge::pydantic
+  - conda-forge::requests
+  - conda-forge::python-multipart
+  - conda-forge::python-dotenv
+  - conda-forge::libsndfile
+  - pip
+  - pip:
+    - faster-whisper
+    - pyannote.audio
+    - soundfile
+    - numpy<2.0
+
+# To create: conda env create -f environment.yml
+# To update: conda env update -f environment.yml --prune
+# To activate: conda activate whisper_transcriptor

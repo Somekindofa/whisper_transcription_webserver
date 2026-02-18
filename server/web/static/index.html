@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Whisper Transcriptor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <h1>Whisper Transcriptor</h1>
+        <p>Drag files, set options, queue, then transcribe.</p>
+      </header>
+
+      <section class="controls">
+        <div class="dropzone" id="dropzone">
+          <p>Drop audio or video here</p>
+          <p style="font-size: 0.85rem; color: #666; margin: 0.5rem 0 0;">Supports MP3, WAV, MP4, MKV, WebM, and more</p>
+          <input type="file" id="fileInput" multiple />
+        </div>
+
+        <div class="options">
+          <!-- Language & speaker options moved to each queued item so every file can have its own settings. -->
+          <div style="font-size:0.9rem; color:#666;">Set language & speaker count per queued item.</div>
+          <button id="transcribeButton">Transcribe</button>
+        </div>
+      </section>
+
+      <section class="queue">
+        <h2>Queue</h2>
+        <div id="queueList"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
