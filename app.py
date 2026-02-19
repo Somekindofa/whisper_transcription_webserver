@@ -21,6 +21,6 @@ if __name__ == "__main__":
         "server.main:app",
         host=config.HOST,
         port=config.PORT,
-        reload=True,
+        reload=False,  # production / background use — set to True only during development
         log_level="info",
     )

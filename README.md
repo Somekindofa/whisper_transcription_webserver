@@ -82,6 +82,52 @@ python app.py
 
 Open your browser to `http://127.0.0.1:8000`
 
+---
+
+### Run as a background service (Windows + Tailscale) 🟢
+
+If you want the server to "fire-and-forget" on a Windows workstation and be reachable by other machines on your Tailscale mesh (e.g. `100.67.71.101:8000`), use a Scheduled Task or NSSM. This repo includes helper scripts in `scripts/`.
+
+Recommended (no extra installs): create a Scheduled Task that runs at system startup (runs as SYSTEM).
+
+1) From an elevated PowerShell prompt (Administrator) run:
+
+```powershell
+# create/start the task (adjust -PythonExe if needed)
+.\scripts\install-windows-schtask.ps1 -PythonExe "C:\Path\To\python.exe" -Host 0.0.0.0 -Port 8000 -AddFirewallRule
+```
+
+2) Verify it's running and view logs:
+
+```powershell
+# view scheduled tasks
+schtasks /Query /TN "WhisperTranscriptor"
+# check runtime logs
+Get-Content storage\\server.out.log -Tail 100 -Wait  # stdout
+Get-Content storage\\server.err.log -Tail 100 -Wait  # stderr
+```
+
+3) Your team can open in their browser using the Tailscale IP and port:
+
+```
+http://100.67.71.101:8000
+```
+
+Notes and alternatives:
+- The helper script launches `scripts/run_server.ps1` which sets `HOST`/`PORT` for the process and writes `storage\server.out.log` (stdout) and `storage\server.err.log` (stderr).
+- If you prefer a true Windows Service, install NSSM (https://nssm.cc/) and point it at your Python executable and `app.py`.
+- Keep `HOST=0.0.0.0` so the app binds the Tailscale interface; the repo default remains `127.0.0.1` so you must set HOST via `.env` or Scheduled Task args.
+- For firewall access, `-AddFirewallRule` in the installer will add a rule for the selected port.
+
+To remove the auto-start task:
+
+```powershell
+.\scripts\uninstall-windows-schtask.ps1 -RemoveFirewallRule
+```
+
+---
+
+
 ### Using the interface
 
 1. **Upload files**: Drag and drop audio/video files or click to browse
