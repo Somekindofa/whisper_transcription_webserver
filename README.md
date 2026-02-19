@@ -127,6 +127,38 @@ To remove the auto-start task:
 
 ---
 
+### Remote deploy & auto-restart 🔁
+
+Yes — you can push a merge from another machine and have the server pull and restart automatically. Recommended approaches (pick one):
+
+1) Push-to-deploy (direct SSH push) — best for teams inside the same Tailscale mesh
+   - Create a **bare** repo on the server and add a `post-receive` hook that checks out the working tree and calls `scripts/deploy_and_restart.ps1`.
+   - Developers push directly to the server (`git remote add prod ssh://user@100.67.71.101/C:/repos/whisper_transcriptor.git && git push prod master`) and the hook updates the running app.
+
+2) CI-based deploy (recommended if you use GitHub) — use a GitHub Action that connects to the server via SSH and runs `scripts/deploy_and_restart.ps1`.
+   - Example workflow added at `.github/workflows/deploy.yml` (requires an SSH key or a self-hosted runner).
+   - Note: if your server is only reachable on Tailscale, prefer a self-hosted runner on that machine or use the push-to-deploy approach.
+
+3) Poller on the server (simple, no external infra)
+   - Add a Scheduled Task that runs `scripts/deploy_and_restart.ps1` periodically (e.g. every 5 minutes). The script will `git fetch`/`reset` and restart if `origin/master` changed.
+
+What I added for you
+- `scripts/restart-server.ps1` — safely stops existing `app.py` process and starts a new background instance.
+- `scripts/deploy_and_restart.ps1` — `git pull` (reset to origin/branch), optional pip install, then restarts via `restart-server.ps1`.
+- `.github/workflows/deploy.yml` — example GitHub Actions deployment job.
+
+Quick manual deploy (from any machine with SSH access to the host):
+
+```bash
+ssh user@100.67.71.101 "cd 'C:\Users\dupon\Documents\Personal\whisper_transcriptor' && git pull origin master && powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\deploy_and_restart.ps1 -Branch master"
+```
+
+Security notes
+- Use SSH keys and limited accounts for push-to-deploy or CI SSH.
+- If you expose a deployment endpoint, require a secret and restrict access (the repo is currently only reachable inside your Tailscale mesh, which reduces exposure).
+
+---
+
 
 ### Using the interface
 

@@ -417,11 +417,25 @@ function stopPolling() {
 }
 
 async function uploadFiles(files) {
+  // Client-side max upload size in bytes (prevent very large uploads from being started).
+  // Keep this in sync with any server-side limit you add later.
+  const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+
   // Default per-item options: French (fr) and speakers = 1 (transcription-only)
   const language = DEFAULT_LANGUAGE;
   const speakers = DEFAULT_SPEAKERS;
 
-  for (const file of files) {
+  // Pre-validate selected files and inform the user about oversized items.
+  const selectedFiles = Array.from(files);
+  const oversized = selectedFiles.filter(f => f.size > MAX_UPLOAD_BYTES);
+  if (oversized.length > 0) {
+    const names = oversized.map(f => `${f.name} (${(f.size/1024/1024).toFixed(1)} MB)`).join('\n');
+    alert(`The following file(s) exceed the client-side size limit of ${(MAX_UPLOAD_BYTES/1024/1024)} MB and will be skipped:\n\n${names}`);
+  }
+
+  for (const file of selectedFiles) {
+    // Skip files that exceed the client-side threshold
+    if (file.size > MAX_UPLOAD_BYTES) continue;
     const formData = new FormData();
     formData.append("file", file);
     formData.append("language", language);
